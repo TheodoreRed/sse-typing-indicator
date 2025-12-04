@@ -1,0 +1,56 @@
+name: Publish from Release Tag
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Extract version from GitHub release tag (v1.2.3 → 1.2.3)
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      # Update both package versions dynamically
+      - name: Update package.json versions
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "Setting version to $VERSION"
+
+          # Update server package.json
+          jq --arg v "$VERSION" '.version = $v' packages/server/package.json > tmp && mv tmp packages/server/package.json
+
+          # Update client package.json
+          jq --arg v "$VERSION" '.version = $v' packages/client/package.json > tmp && mv tmp packages/client/package.json
+        shell: bash
+
+      - name: Build packages
+        run: pnpm -r run build
+
+      - name: Publish server package
+        run: pnpm publish --filter @theodorered/sse-typing-server --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish client package
+        run: pnpm publish --filter @theodorered/sse-typing-client --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
